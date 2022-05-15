@@ -6,8 +6,7 @@
 
 -}
 module Hasql.Notifications
-  ( notifyPool
-  , notify
+  ( notify
   , listen
   , unlisten
   , waitForNotifications
@@ -16,7 +15,6 @@ module Hasql.Notifications
   , fromPgIdentifier
   ) where
 
-import Hasql.Pool (Pool, UsageError, use)
 import Hasql.Session (sql, run, statement)
 import qualified Hasql.Session as S
 import qualified Hasql.Statement as HST
@@ -54,17 +52,6 @@ toPgIdentifier x =
     strictlyReplaceQuotes :: Text -> Text
     strictlyReplaceQuotes = T.replace "\"" ("\"\"" :: Text)
 
--- | Given a Hasql Pool, a channel and a message sends a notify command to the database
-notifyPool :: Pool -- ^ Pool from which the connection will be used to issue a NOTIFY command.
-           -> Text -- ^ Channel where to send the notification
-           -> Text -- ^ Payload to be sent with the notification
-           -> IO (Either UsageError ())
-notifyPool pool channel mesg =
-   use pool (statement (channel, mesg) callStatement)
-   where
-     callStatement = HST.Statement ("SELECT pg_notify" <> "($1, $2)") encoder HD.noResult False
-     encoder = contramap fst (HE.param $ HE.nonNullable HE.text) <> contramap snd (HE.param $ HE.nonNullable HE.text)
-
 -- | Given a Hasql Connection, a channel and a message sends a notify command to the database
 notify :: Connection -- ^ Connection to be used to send the NOTIFY command
        -> PgIdentifier -- ^ Channel where to send the notification
@@ -73,7 +60,7 @@ notify :: Connection -- ^ Connection to be used to send the NOTIFY command
 notify con channel mesg =
    run (sql $ T.encodeUtf8 ("NOTIFY " <> fromPgIdentifier channel <> ", '" <> mesg <> "'")) con
 
-{-| 
+{-|
   Given a Hasql Connection and a channel sends a listen command to the database.
   Once the connection sends the LISTEN command the server register its interest in the channel.
   Hence it's important to keep track of which connection was used to open the listen command.
@@ -115,8 +102,8 @@ unlisten con channel =
     execListen pqCon = void $ PQ.exec pqCon $ T.encodeUtf8 $ "UNLISTEN " <> fromPgIdentifier channel
 
 
-{-| 
-  Given a function that handles notifications and a Hasql connection it will listen 
+{-|
+  Given a function that handles notifications and a Hasql connection it will listen
   on the database connection and call the handler everytime a message arrives.
 
   The message handler passed as first argument needs two parameters channel and payload.
@@ -131,7 +118,7 @@ unlisten con channel =
   import Hasql.Notifications
 
   notificationHandler :: ByteString -> ByteString -> IO()
-  notificationHandler channel payload = 
+  notificationHandler channel payload =
     void $ async do
       print $ "Handle payload " <> payload <> " in its own thread"
 
